@@ -3,40 +3,50 @@ import argparse
 import sys
 import re
 
+from collections import namedtuple
+
+Result = namedtuple('Result', 'line, is_founded')
+
 
 def output(line):
     print(line)
 
 
-def grep(lines, params):
-    def add_context_lines(line_number, before=True):
-        if before:
-            for i in range(1, line_number + 1):
-                if line_index - i >= 0 and line_index - i + 1 not in result_output:
-                    result_output.update({line_index - i + 1: {'line': lines[line_index - i], 'isFounded': False}})
-        else:
-            for i in range(1, line_number + 1):
-                if line_index + i < len(lines) and line_index + i + 1 not in result_output:
-                    result_output.update({line_index + i + 1: {'line': lines[line_index + i], 'isFounded': False}})
+# Я думаю ты как-то иначе это предполагал. Я если честно не очень поняла
+def add_context_lines(line_number, result_output, lines, line_index, before=True):
+    if before:  # На счет 1000000 строки. Разве не надо выписать все строки, которые идут до?
+        for i in range(1, line_number + 1):
+            line_before_index = line_index - i + 1
+            if line_index - i >= 0 and line_before_index not in result_output:
+                result_output.update({line_before_index: Result(lines[line_index - i], False)})
+    else:
+        for i in range(1, line_number + 1):
+            line_after_index = line_index + i + 1
+            if line_index + i < len(lines) and line_after_index not in result_output:
+                result_output.update({line_after_index: Result(lines[line_index + i], False)})
 
+
+def grep(lines, params):
     result_output = {}
     regexp = create_regexp(params)
-    for line in lines:
-        line = line.rstrip()
-
-        if (re.search(regexp, line) and not params.invert) or (not re.search(regexp, line) and params.invert):
-            line_index = lines.index(line)
-            result_output.update({line_index + 1: {'line': line, 'isFounded': True}})
+    for line_index, line in enumerate(lines, 1):
+        line = line.rstrip()  # Это было уже в исходном коде, поэтому оно тут)
+        """
+        попыталась поссмотреть из консольки что станет если приметить rstrip к строке с табами - табы сохранились
+        """
+        search_result = re.search(regexp, line)
+        if (search_result and not params.invert) or (not search_result and params.invert):
+            result_output.update({line_index: Result(line, True)})
 
             if params.context:
-                add_context_lines(params.context)
-                add_context_lines(params.context, False)
+                add_context_lines(params.context, result_output, lines, line_index)
+                add_context_lines(params.context, result_output, lines, line_index, False)
 
             if params.before_context:
-                add_context_lines(params.before_context)
+                add_context_lines(params.before_context, result_output, lines, line_index)
 
             if params.after_context:
-                add_context_lines(params.after_context, False)
+                add_context_lines(params.after_context, result_output, lines, line_index, False)
 
     for line in format_output(params, result_output):
         output(line)
@@ -44,6 +54,12 @@ def grep(lines, params):
 
 def format_output(params, lines):
     def sort_dict(lines):
+        """
+        Нужна для того, чтобы отсортировать результат по номеру строки.
+        Иногда просто бывает так, что строки идут не в порядковой нумерации.
+        :param lines:
+        :return:
+        """
         sorted_dict = {}
         for key in sorted(lines.keys()):
             sorted_dict.update({key: lines[key]})
@@ -54,13 +70,13 @@ def format_output(params, lines):
         if lines:
             return [str(len(lines))]
         else:
-            return [str(0)]
+            return ['0']
 
     if params.line_number:
-        return [f"{key}:{value['line']}" if value['isFounded'] else f"{key}-{value['line']}" for key, value in lines.items()]
+        return [f"{key}:{value.line}" if value.is_founded else f"{key}-{value.line}" for key, value in lines.items()]
 
     else:
-        return [value['line'] for value in lines.values()]
+        return [value.line for value in lines.values()]
 
 
 def create_regexp(params):
